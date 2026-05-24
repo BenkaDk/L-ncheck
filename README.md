@@ -145,7 +145,7 @@ period,paid_hours,gross_salary,net_salary,pension_employee,pension_employer,vaca
 ## Roadmap
 
 - [x] PDF-rapport
-- [ ] GUI
-- [ ] bedre matching af lønseddel-felter
+- [x] GUI
+- [x] bedre matching af lønseddel-felter
 - [ ] kontrakt-upload til timeløn og pension
 - [ ] PyInstaller build til .exe
