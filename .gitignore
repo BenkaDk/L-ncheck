@@ -26,6 +26,28 @@ share/python-wheels/
 *.egg
 MANIFEST
 
+#Other files to ignore
+*.pdf
+*.csv
+*.json
+*.xlsx
+*.xls
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+.env
+.env.*
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+secrets/
+private/
+secure/
+
 # PyInstaller
 #   Usually these files are written by a python script from a template
 #   before PyInstaller builds the exe, so as to inject date/other infos into it.
