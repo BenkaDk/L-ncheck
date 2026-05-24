@@ -15,16 +15,16 @@ Projektet bruges til at:
 ## Funktioner
 
 - Scraper timer fra Minuba
-- Læser lønsedler automatisk
+- Læser lønsedler automatisk fra PDF
 - Matcher data pr. måned
 - Beregner forventet løn ud fra timeløn
 - Marker fejl og afvigelser
-- Eksporterer resultater til CSV og JSON
+- Eksporterer resultater til CSV, JSON og PDF
 
 ## Projektstruktur
 
 ```text
-loncheck/
+Loenchecker/
 ├── minuba_timer.py
 ├── lonseddel_analyse.py
 ├── reconcile.py
@@ -33,9 +33,13 @@ loncheck/
 ├── data/
 │   ├── minuba_2025.csv
 │   └── payslips_2025.csv
-└── reports/
-    ├── reconciliation_report.csv
-    └── reconciliation_report.json
+├── output/
+│   ├── payslips_2025.csv
+│   ├── reconciliation_report.csv
+│   ├── reconciliation_report.json
+│   └── reconciliation_report.pdf
+└── lønsedler/
+    └── *.pdf
 ```
 
 ## Installation
@@ -76,7 +80,7 @@ python minuba_timer.py --periode 2025 --csv data/minuba_2025.csv
 ### 2. Læs lønsedler
 
 ```bash
-python lonseddel_analyse.py --mappe ./lønsedler --csv data/payslips_2025.csv
+python lonseddel_analyse.py --mappe ./lønsedler --csv output/payslips_2025.csv
 ```
 
 ### 3. Sammenlign data
@@ -86,8 +90,9 @@ python reconcile.py \
   --minuba-csv data/minuba_2025.csv \
   --payslip-csv output/payslips_2025.csv \
   --hourly-rate 220 \
-  --out-csv reports/reconciliation_report.csv \
-  --out-json reports/reconciliation_report.json
+  --out-csv output/reconciliation_report.csv \
+  --out-json output/reconciliation_report.json \
+  --out-pdf output/reconciliation_report.pdf
 ```
 
 
@@ -108,6 +113,7 @@ Scriptet laver:
 
 - en CSV-rapport
 - en JSON-rapport
+- en PDF-rapport
 - advarsler ved afvigelser
 
 ## Eksempel på input
