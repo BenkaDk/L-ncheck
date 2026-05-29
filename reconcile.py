@@ -43,6 +43,15 @@ def normalize_decimal(value) -> Optional[float]:
     return float(m.group()) if m else None
 
 
+def money(value: float) -> str:
+    if value is None:
+        return "0,00"
+    try:
+        return f"{float(value):,.2f}".replace(",", " ").replace(".", ",")
+    except Exception:
+        return str(value)
+
+
 def parse_date(value) -> Optional[datetime]:
     if not value:
         return None
@@ -143,6 +152,9 @@ def load_payslip_csv(path: Path) -> Dict[str, Any]:
         "pension_employer": 0.0,
         "pension_total": 0.0,
         "other_deductions": 0.0,
+        "arbejdstimer_ytd": 0.0,
+        "payslip_total_hours_ytd": 0.0,
+        "payslip_total_hours_source": "monthly",
         "a_indkomst_ytd": 0.0,
         "am_grundlag_ytd": 0.0,
         "skattebelob_ytd": 0.0,
@@ -191,16 +203,21 @@ def load_payslip_csv(path: Path) -> Dict[str, Any]:
         result["pension_employee_ytd"] = normalize_decimal(last_row.get("pension_employee_ytd") or 0) or 0.0
         result["pension_employer_ytd"] = normalize_decimal(last_row.get("pension_employer_ytd") or 0) or 0.0
         result["pension_total_ytd"] = normalize_decimal(last_row.get("pension_total_ytd") or 0) or 0.0
+        arbejdstimer_ytd = 0.0
+        has_ytd_hours = False
+        if last_row.get("arbejdstimer_ytd") not in (None, ""):
+            arbejdstimer_ytd = normalize_decimal(last_row.get("arbejdstimer_ytd")) or 0.0
+            has_ytd_hours = True
+        result["arbejdstimer_ytd"] = arbejdstimer_ytd
+        result["payslip_total_hours_ytd"] = arbejdstimer_ytd
+        result["payslip_total_hours_source"] = "ytd" if has_ytd_hours else "monthly"
+        result["payslip_total_hours"] = arbejdstimer_ytd if has_ytd_hours else result["work_hours"] + result["sick_hours"]
     return result
 
 
-def money(x: float) -> str:
-    return f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-
 def reconcile(minuba: Dict[str, float], payslip: Dict[str, Any], hourly_rate: float) -> Dict[str, Any]:
-    minuba_total = round(minuba["work_hours"] + minuba["sick_hours"], 2)
-    payslip_total = round(payslip["work_hours"] + payslip["sick_hours"], 2)
+    minuba_total = minuba["work_hours"] + minuba["sick_hours"]
+    payslip_total = round(payslip["payslip_total_hours"], 2)
     hour_diff = round(minuba_total - payslip_total, 2)
     money_diff = round(hour_diff * hourly_rate, 2)
 
@@ -228,6 +245,7 @@ def reconcile(minuba: Dict[str, float], payslip: Dict[str, Any], hourly_rate: fl
         f"Minuba arbejdstimer: {minuba['work_hours']:.2f}. "
         f"Minuba sygetimer: {minuba['sick_hours']:.2f}. "
         f"Ferie-timer er ikke medregnet. "
+        f"Lønsedlens betalte timer: {payslip_total:.2f} ({payslip['payslip_total_hours_source']}). "
         f"Lønsedlens arbejdstimer: {payslip['work_hours']:.2f}. "
         f"Lønsedlens sygetimer beregnet fra dage: {payslip['sick_hours']:.2f}. "
         f"SH i perioden: {payslip['sh_period']:.2f}. "
@@ -247,6 +265,8 @@ def reconcile(minuba: Dict[str, float], payslip: Dict[str, Any], hourly_rate: fl
         "payslip_work_hours": round(payslip["work_hours"], 2),
         "payslip_sick_hours": round(payslip["sick_hours"], 2),
         "payslip_total_hours": payslip_total,
+        "payslip_total_hours_ytd": round(payslip["payslip_total_hours_ytd"], 2),
+        "payslip_total_hours_source": payslip["payslip_total_hours_source"],
         "hour_diff": hour_diff,
         "money_diff": money_diff,
         "expected_gross_minuba": expected_gross_minuba,
@@ -462,8 +482,14 @@ def main():
     parser.add_argument("--out-pdf", default="annual_reconciliation_report.pdf")
     args = parser.parse_args()
 
-    minuba = load_minuba_csv(Path(args.minuba_csv))
-    payslip = load_payslip_csv(Path(args.payslip_csv))
+    minuba_path = Path(args.minuba_csv)
+    payslip_path = Path(args.payslip_csv)
+    for csv_path, label in ((minuba_path, "Minuba"), (payslip_path, "Payslip")):
+        if not csv_path.is_file():
+            parser.error(f"{label} CSV not found: {csv_path}")
+
+    minuba = load_minuba_csv(minuba_path)
+    payslip = load_payslip_csv(payslip_path)
     data = reconcile(minuba, payslip, args.hourly_rate)
 
     Path(args.out_csv).parent.mkdir(parents=True, exist_ok=True)

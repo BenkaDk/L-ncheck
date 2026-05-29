@@ -74,6 +74,9 @@ PATTERNS = {
 }
 
 PATTERNS_YTD = {
+    "arbejdstimer_ytd": [
+        r"Arbejdstimer[\s:]*([\d]{1,4}[,.]\d{1,2})",
+    ],
     "a_indkomst_ytd": [
         r"(?-i:A-Indkomst[\s:]*([\d]{1,3}(?:[.\s]\d{3})*(?:[,.]\d{2})?))",
     ],
@@ -83,6 +86,24 @@ PATTERNS_YTD = {
     "skattebelob_ytd": [
         r"(?-i:A-skat, samlet[\s:]*([\d]{1,3}(?:[.\s]\d{3})*(?:[,.]\d{2})?))",
         r"(?-i:A-skat samlet[\s:]*([\d]{1,3}(?:[.\s]\d{3})*(?:[,.]\d{2})?))",
+    ],
+    "am_bidrag_samlet_ytd": [
+        r"AM-bidrag, samlet[\s:]*([\d]{1,3}(?:[.\s]\d{3})*(?:[,.]\d{2})?)",
+    ],
+    "atp_medarbejder_ytd": [
+        r"ATP, medarbejderbidrag[\s:]*([\d]{1,3}(?:[.\s]\d{3})*(?:[,.]\d{2})?)",
+    ],
+    "atp_virksomhed_ytd": [
+        r"ATP, virksomhedsbidrag[\s:]*([\d]{1,3}(?:[.\s]\d{3})*(?:[,.]\d{2})?)",
+    ],
+    "feriepengeopsparing_ytd": [
+        r"Feriepengeopsparing[\s:]*([\d]{1,3}(?:[.\s]\d{3})*(?:[,.]\d{2})?)",
+    ],
+    "feriepenge_efter_skat_ytd": [
+        r"Feriepenge efter skat[\s:]*([\d]{1,3}(?:[.\s]\d{3})*(?:[,.]\d{2})?)",
+    ],
+    "fri_telefon_internet_ytd": [
+        r"Fri telefon og internet[\s:]*([\d]{1,3}(?:[.\s]\d{3})*(?:[,.]\d{2})?)",
     ],
     "pension_employee_ytd": [
         r"Arbejdsmarkedspension, medarbejderbidrag[\s:]*([\d]{1,3}(?:[.\s]\d{3})*(?:[,.]\d{2})?)",
@@ -108,10 +129,36 @@ def norm_number(value: str) -> Optional[float]:
     return float(m.group()) if m else None
 
 
-def extract_first(patterns: List[str], text: str) -> Optional[float]:
+YTD_EXCLUDE_PATTERNS = [
+    r"år\s+til\s+dato",
+    r"til\s+dato",
+    r"year\s+to\s+date",
+    r"ytd",
+]
+
+
+def text_before_ytd_section(text: str) -> str:
+    parts = re.split(r"(?i)\bSALDI\b|År\s+til\s+dato|YEAR\s+TO\s+DATE|\bYTD\b", text, maxsplit=1)
+    return parts[0] if parts else text
+
+
+def text_after_ytd_section(text: str) -> str:
+    parts = re.split(r"(?i)\bSALDI\b|År\s+til\s+dato|YEAR\s+TO\s+DATE|\bYTD\b", text, maxsplit=1)
+    return parts[1] if len(parts) > 1 else ""
+
+
+def extract_first(patterns: List[str], text: str, exclude_patterns: Optional[List[str]] = None) -> Optional[float]:
+    exclude_patterns = exclude_patterns or []
     for pattern in patterns:
-        m = re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE | re.DOTALL)
-        if m:
+        for m in re.finditer(pattern, text, flags=re.IGNORECASE | re.MULTILINE | re.DOTALL):
+            if exclude_patterns:
+                start = text.rfind("\n", 0, m.start()) + 1
+                end = text.find("\n", m.end())
+                if end == -1:
+                    end = len(text)
+                line_text = text[start:end]
+                if any(re.search(exclude, line_text, flags=re.IGNORECASE) for exclude in exclude_patterns):
+                    continue
             return norm_number(m.group(1))
     return None
 
@@ -141,33 +188,46 @@ def read_pdf_text(pdf_path: Path) -> str:
     return "\n".join(parts)
 
 
+def text_before_ytd_section(text: str) -> str:
+    parts = re.split(r"(?i)\bSALDI\b|År\s+til\s+dato|YEAR\s+TO\s+DATE|\bYTD\b", text, maxsplit=1)
+    return parts[0] if parts else text
+
+
 def parse_payslip_text(text: str) -> dict:
-    sh_period = extract_first(PATTERNS["sh_period"], text)
-    sh_rest = extract_last(PATTERNS["sh_rest"], text)
-    pension_employee = extract_first(PATTERNS["pension_employee"], text)
-    pension_employer = extract_first(PATTERNS["pension_employer"], text)
-    pension_employee_ytd = extract_last(PATTERNS_YTD["pension_employee_ytd"], text)
-    pension_employer_ytd = extract_last(PATTERNS_YTD["pension_employer_ytd"], text)
+    monthly_text = text_before_ytd_section(text)
+    ytd_text = text_after_ytd_section(text)
+    sh_period = extract_first(PATTERNS["sh_period"], monthly_text)
+    sh_rest = extract_last(PATTERNS["sh_rest"], monthly_text)
+    pension_employee = extract_first(PATTERNS["pension_employee"], monthly_text)
+    pension_employer = extract_first(PATTERNS["pension_employer"], monthly_text)
+    ytd_values = {key: extract_last(patterns, ytd_text) for key, patterns in PATTERNS_YTD.items()}
     pension_total_ytd = None
-    if pension_employee_ytd is not None and pension_employer_ytd is not None:
-        pension_total_ytd = pension_employee_ytd + pension_employer_ytd
+    if ytd_values.get("pension_employee_ytd") is not None and ytd_values.get("pension_employer_ytd") is not None:
+        pension_total_ytd = ytd_values["pension_employee_ytd"] + ytd_values["pension_employer_ytd"]
     return {
-        "arbejdstimer": extract_first(PATTERNS["arbejdstimer"], text),
-        "sygdom_days": extract_first(PATTERNS["sygdom_days"], text),
-        "ferie_days": extract_first(PATTERNS["ferie_days"], text),
-        "brutto": extract_first(PATTERNS["brutto"], text),
-        "netto": extract_first(PATTERNS["netto"], text),
-        "skattebelob": extract_first(PATTERNS["tax"], text),
+        "arbejdstimer": extract_first(PATTERNS["arbejdstimer"], monthly_text, exclude_patterns=YTD_EXCLUDE_PATTERNS),
+        "sygdom_days": extract_first(PATTERNS["sygdom_days"], monthly_text),
+        "ferie_days": extract_first(PATTERNS["ferie_days"], monthly_text),
+        "brutto": extract_first(PATTERNS["brutto"], monthly_text),
+        "netto": extract_first(PATTERNS["netto"], monthly_text),
+        "skattebelob": extract_first(PATTERNS["tax"], monthly_text),
         "sh_period": sh_period,
         "sh_rest": sh_rest,
         "pension_employee": pension_employee,
         "pension_employer": pension_employer,
-        "other_deductions": extract_first(PATTERNS["other_deductions"], text),
-        "a_indkomst_ytd": extract_last(PATTERNS_YTD["a_indkomst_ytd"], text),
-        "am_grundlag_ytd": extract_last(PATTERNS_YTD["am_grundlag_ytd"], text),
-        "skattebelob_ytd": extract_last(PATTERNS_YTD["skattebelob_ytd"], text),
-        "pension_employee_ytd": pension_employee_ytd,
-        "pension_employer_ytd": pension_employer_ytd,
+        "other_deductions": extract_first(PATTERNS["other_deductions"], monthly_text),
+        "arbejdstimer_ytd": ytd_values.get("arbejdstimer_ytd"),
+        "a_indkomst_ytd": ytd_values.get("a_indkomst_ytd"),
+        "am_grundlag_ytd": ytd_values.get("am_grundlag_ytd"),
+        "skattebelob_ytd": ytd_values.get("skattebelob_ytd"),
+        "am_bidrag_samlet_ytd": ytd_values.get("am_bidrag_samlet_ytd"),
+        "atp_medarbejder_ytd": ytd_values.get("atp_medarbejder_ytd"),
+        "atp_virksomhed_ytd": ytd_values.get("atp_virksomhed_ytd"),
+        "feriepengeopsparing_ytd": ytd_values.get("feriepengeopsparing_ytd"),
+        "feriepenge_efter_skat_ytd": ytd_values.get("feriepenge_efter_skat_ytd"),
+        "fri_telefon_internet_ytd": ytd_values.get("fri_telefon_internet_ytd"),
+        "pension_employee_ytd": ytd_values.get("pension_employee_ytd"),
+        "pension_employer_ytd": ytd_values.get("pension_employer_ytd"),
         "pension_total_ytd": pension_total_ytd,
     }
 
@@ -247,6 +307,17 @@ def print_table(rows: List[Dict[str, object]]) -> None:
         print(
             f"{r['file']} | {r['arbejdstimer']} | {r['sygdom_days']} | {r['ferie_days']} | {r['brutto']} | {r['netto']} | {r.get('skattebelob')} | {r.get('sh_period')} | {r.get('sh_rest')} | {r['pension_employee']} | {r['pension_employer']} | {r.get('other_deductions')}"
         )
+        ytd_values = []
+        if r.get("arbejdstimer_ytd") is not None:
+            ytd_values.append(f"Arbejdstimer YTD: {r['arbejdstimer_ytd']}")
+        if r.get("a_indkomst_ytd") is not None:
+            ytd_values.append(f"A-Indkomst YTD: {r['a_indkomst_ytd']}")
+        if r.get("skattebelob_ytd") is not None:
+            ytd_values.append(f"A-skat YTD: {r['skattebelob_ytd']}")
+        if r.get("pension_total_ytd") is not None:
+            ytd_values.append(f"Pension YTD: {r['pension_total_ytd']}")
+        if ytd_values:
+            print("   " + " | ".join(ytd_values))
 
 
 def main():
